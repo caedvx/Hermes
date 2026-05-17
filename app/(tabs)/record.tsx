@@ -16,7 +16,7 @@ import {
   Linking,
   useColorScheme,
 } from 'react-native';
-import MapLibreGL from '@maplibre/maplibre-react-native';
+import { Map as MapLibreMap, Camera, GeoJSONSource, Layer, UserLocation, Marker, type CameraRef } from '@maplibre/maplibre-react-native';
 import * as Location from 'expo-location';
 import { SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useActivityRecording } from '@/hooks/useActivityRecording';
@@ -85,8 +85,8 @@ export default function RecordScreen() {
   const [activityDescription, setActivityDescription] = useState('');
   const [activityStatus, setActivityStatus] = useState<ActivityStatus>('public');
   const recordingDataRef = useRef<ReturnType<typeof stopRecording>>(null);
-  const mapRef = useRef<MapLibreGL.MapView>(null);
-  const cameraRef = useRef<MapLibreGL.Camera>(null);
+  const cameraRef = useRef<CameraRef>(null);
+  const [initialCenter, setInitialCenter] = useState<[number, number] | null>(null);
 
   const C = useColors();
   const colorScheme = useColorScheme();
@@ -149,16 +149,14 @@ export default function RecordScreen() {
     })
   ).current;
 
-  function handleUserLocationUpdate(loc: MapLibreGL.Location) {
-    if (!hasCenteredRef.current && !isRecording) {
-      hasCenteredRef.current = true;
-      cameraRef.current?.setCamera({
-        centerCoordinate: [loc.coords.longitude, loc.coords.latitude],
-        zoomLevel: 15,
-        animationDuration: 600,
-      });
-    }
-  }
+  useEffect(() => {
+    Location.getLastKnownPositionAsync({}).then((pos) => {
+      if (pos && !hasCenteredRef.current) {
+        hasCenteredRef.current = true;
+        setInitialCenter([pos.coords.longitude, pos.coords.latitude]);
+      }
+    }).catch(() => {});
+  }, []);
 
   const mapCoords = track.map((p) => [p.longitude, p.latitude] as [number, number]);
   const lastPoint = track[track.length - 1];
@@ -257,47 +255,39 @@ export default function RecordScreen() {
 
   return (
     <View style={styles.container}>
-      <MapLibreGL.MapView
-        ref={mapRef}
+      <MapLibreMap
         style={styles.map}
-        styleURL={colorScheme === 'dark' ? STYLE_DARK : STYLE_LIGHT}
-        logoEnabled={false}
-        attributionEnabled={false}
+        mapStyle={colorScheme === 'dark' ? STYLE_DARK : STYLE_LIGHT}
+        attribution={false}
       >
-        <MapLibreGL.Camera
+        <Camera
           ref={cameraRef}
-          followUserLocation={isRecording && !isPaused}
-          followZoomLevel={15}
-          zoomLevel={14}
+          trackUserLocation={isRecording && !isPaused ? 'default' : undefined}
+          {...(!isRecording && initialCenter
+            ? { centerCoordinate: initialCenter, zoomLevel: 15, animationDuration: 600 }
+            : { zoomLevel: 14 }
+          )}
         />
-        <MapLibreGL.UserLocation
-          visible
-          onUpdate={handleUserLocationUpdate}
-        />
+        <UserLocation />
         {mapCoords.length > 1 && (
-          <MapLibreGL.ShapeSource
+          <GeoJSONSource
             id="route"
-            shape={{
-              type: 'Feature',
-              geometry: { type: 'LineString', coordinates: mapCoords },
-              properties: {},
-            }}
+            data={{ type: 'Feature', geometry: { type: 'LineString', coordinates: mapCoords }, properties: {} }}
           >
-            <MapLibreGL.LineLayer
+            <Layer
               id="routeLine"
-              style={{ lineColor: C.primary, lineWidth: 4, lineCap: 'round', lineJoin: 'round' }}
+              type="line"
+              paint={{ 'line-color': C.primary, 'line-width': 4 }}
+              layout={{ 'line-cap': 'round', 'line-join': 'round' }}
             />
-          </MapLibreGL.ShapeSource>
+          </GeoJSONSource>
         )}
         {lastPoint && (
-          <MapLibreGL.PointAnnotation
-            id="lastPoint"
-            coordinate={[lastPoint.longitude, lastPoint.latitude]}
-          >
+          <Marker lngLat={[lastPoint.longitude, lastPoint.latitude]}>
             <View style={styles.markerDot} />
-          </MapLibreGL.PointAnnotation>
+          </Marker>
         )}
-      </MapLibreGL.MapView>
+      </MapLibreMap>
 
       {!isRecording && (
         <View style={styles.sportPicker}>

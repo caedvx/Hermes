@@ -11,7 +11,7 @@ import {
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useLocalSearchParams, useRouter } from 'expo-router';
-import MapView, { Polyline, PROVIDER_DEFAULT } from 'react-native-maps';
+import { Map as MapLibreMap, Camera, GeoJSONSource, Layer } from '@maplibre/maplibre-react-native';
 import { supabase } from '@/lib/supabase';
 import { useAuth } from '@/contexts/auth';
 import type { Activity, ActivityStream, Comment, Profile } from '@/lib/types';
@@ -141,36 +141,40 @@ export default function ActivityDetailScreen() {
     );
   }
 
-  const polylineCoords = activity.map_polyline
-    ? decodePolyline(activity.map_polyline).map(([lat, lng]) => ({ latitude: lat, longitude: lng }))
-    : (stream?.latlng?.map(([lat, lng]) => ({ latitude: lat, longitude: lng })) ?? []);
+  const polylineCoords: [number, number][] = activity.map_polyline
+    ? decodePolyline(activity.map_polyline).map(([lat, lng]) => [lng, lat])
+    : (stream?.latlng?.map(([lat, lng]) => [lng, lat]) ?? []);
 
-  const mapRegion = polylineCoords.length > 0 ? {
-    latitude: (Math.max(...polylineCoords.map((c) => c.latitude)) + Math.min(...polylineCoords.map((c) => c.latitude))) / 2,
-    longitude: (Math.max(...polylineCoords.map((c) => c.longitude)) + Math.min(...polylineCoords.map((c) => c.longitude))) / 2,
-    latitudeDelta: Math.max(Math.max(...polylineCoords.map((c) => c.latitude)) - Math.min(...polylineCoords.map((c) => c.latitude)), 0.01) * 1.3,
-    longitudeDelta: Math.max(Math.max(...polylineCoords.map((c) => c.longitude)) - Math.min(...polylineCoords.map((c) => c.longitude)), 0.01) * 1.3,
-  } : undefined;
+  const cameraBounds: [number, number, number, number] | undefined = polylineCoords.length > 0 ? (() => {
+    const lngs = polylineCoords.map(([lng]) => lng);
+    const lats = polylineCoords.map(([, lat]) => lat);
+    return [Math.min(...lngs), Math.min(...lats), Math.max(...lngs), Math.max(...lats)];
+  })() : undefined;
 
   const isOwner = activity.user_id === user?.id;
 
   return (
     <SafeAreaView style={styles.container} edges={['bottom'] as const}>
       <ScrollView>
-        {polylineCoords.length > 0 && mapRegion && (
-          <MapView
+        {polylineCoords.length > 0 && cameraBounds && (
+          <MapLibreMap
             style={styles.map}
-            provider={PROVIDER_DEFAULT}
-            region={mapRegion}
-            scrollEnabled={false}
-            zoomEnabled={false}
+            mapStyle="https://basemaps.cartocdn.com/gl/voyager-gl-style/style.json"
+            attribution={false}
           >
-            <Polyline
-              coordinates={polylineCoords}
-              strokeColor={C.primary}
-              strokeWidth={3}
-            />
-          </MapView>
+            <Camera bounds={cameraBounds} />
+            <GeoJSONSource
+              id="route"
+              data={{ type: 'Feature', geometry: { type: 'LineString', coordinates: polylineCoords }, properties: {} }}
+            >
+              <Layer
+                id="routeLine"
+                type="line"
+                paint={{ 'line-color': C.primary, 'line-width': 3 }}
+                layout={{ 'line-cap': 'round', 'line-join': 'round' }}
+              />
+            </GeoJSONSource>
+          </MapLibreMap>
         )}
 
         <View style={styles.headerSection}>

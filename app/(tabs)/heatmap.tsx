@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState, useMemo } from 'react';
 import { View, Text, StyleSheet, TouchableOpacity, ActivityIndicator } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
-import MapLibreGL from '@maplibre/maplibre-react-native';
+import { Map as MapLibreMap, Camera, GeoJSONSource, Layer, type CameraRef } from '@maplibre/maplibre-react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { supabase } from '@/lib/supabase';
 import { useAuth } from '@/contexts/auth';

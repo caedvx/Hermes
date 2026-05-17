@@ -4,9 +4,6 @@ import { StatusBar } from 'expo-status-bar';
 import { SafeAreaProvider } from 'react-native-safe-area-context';
 import { AuthProvider, useAuth } from '@/contexts/auth';
 import { ThemeProvider, useTheme } from '@/contexts/theme';
-import MapLibreGL from '@maplibre/maplibre-react-native';
-
-MapLibreGL.setAccessToken(null);
 
 function RootNavigator() {
   const { session, loading } = useAuth();
