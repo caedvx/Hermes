@@ -11,11 +11,11 @@
     "splash": {
       "image": "./assets/splash-icon.png",
       "resizeMode": "contain",
-      "backgroundColor": "#fc4c02"
+      "backgroundColor": "#2563EB"
     },
     "ios": {
       "supportsTablet": true,
-      "bundleIdentifier": "com.hermes.stravacompanion",
+      "bundleIdentifier": "com.caedvx.hermes",
       "infoPlist": {
         "NSLocationWhenInUseUsageDescription": "Hermes uses your location to track your activity route.",
         "NSLocationAlwaysAndWhenInUseUsageDescription": "Hermes uses your location in the background to keep tracking your activity."
@@ -24,11 +24,11 @@
     "android": {
       "adaptiveIcon": {
         "foregroundImage": "./assets/adaptive-icon.png",
-        "backgroundColor": "#fc4c02"
+        "backgroundColor": "#2563EB"
       },
       "edgeToEdgeEnabled": true,
       "predictiveBackGestureEnabled": false,
-      "package": "com.hermes.stravacompanion",
+      "package": "com.caedvx.hermes",
       "permissions": [
         "android.permission.ACCESS_COARSE_LOCATION",
         "android.permission.ACCESS_FINE_LOCATION",
