@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState, useMemo } from 'react';
 import { View, Text, StyleSheet, TouchableOpacity, ActivityIndicator } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
-import MapView, { Polyline, PROVIDER_DEFAULT } from 'react-native-maps';
+import MapLibreGL from '@maplibre/maplibre-react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { supabase } from '@/lib/supabase';
 import { useAuth } from '@/contexts/auth';
@@ -19,7 +19,7 @@ export default function HeatmapScreen() {
   const C = useColors();
   const { isDark } = useTheme();
   const styles = useMemo(() => makeStyles(C), [C]);
-  const mapRef = useRef<MapView>(null);
+  const cameraRef = useRef<MapLibreGL.Camera>(null);
 
   const [routes, setRoutes] = useState<Route[]>([]);
   const [loading, setLoading] = useState(true);
@@ -63,15 +63,15 @@ export default function HeatmapScreen() {
 
       setRoutes(loaded);
 
-      if (loaded.length && mapRef.current) {
+      if (loaded.length) {
         const all = loaded.flat();
         const lats = all.map((p) => p.latitude);
         const lngs = all.map((p) => p.longitude);
-        mapRef.current.fitToCoordinates(all, {
-          edgePadding: { top: 40, right: 40, bottom: 40, left: 40 },
-          animated: false,
-        });
-        void lats; void lngs;
+        const sw: [number, number] = [Math.min(...lngs), Math.min(...lats)];
+        const ne: [number, number] = [Math.max(...lngs), Math.max(...lats)];
+        setTimeout(() => {
+          cameraRef.current?.fitBounds(ne, sw, [40, 40, 40, 40], 0);
+        }, 300);
       }
 
       setLoading(false);
@@ -100,21 +100,41 @@ export default function HeatmapScreen() {
           </View>
         ) : (
           <>
-            <MapView
-              ref={mapRef}
-              provider={PROVIDER_DEFAULT}
+            <MapLibreGL.MapView
               style={StyleSheet.absoluteFill}
-              userInterfaceStyle={isDark ? 'dark' : 'light'}
+              styleURL={isDark
+                ? 'https://basemaps.cartocdn.com/gl/dark-matter-gl-style/style.json'
+                : 'https://basemaps.cartocdn.com/gl/voyager-gl-style/style.json'}
+              logoEnabled={false}
+              attributionEnabled={false}
             >
-              {routes.map((coords, i) => (
-                <Polyline
-                  key={i}
-                  coordinates={coords}
-                  strokeColor={mode === 'heatmap' ? 'rgba(252,76,2,0.35)' : 'rgba(37,99,235,0.7)'}
-                  strokeWidth={mode === 'heatmap' ? 3 : 2}
+              <MapLibreGL.Camera ref={cameraRef} zoomLevel={10} />
+              <MapLibreGL.ShapeSource
+                id="routes"
+                shape={{
+                  type: 'FeatureCollection',
+                  features: routes.map((coords, i) => ({
+                    type: 'Feature' as const,
+                    id: String(i),
+                    geometry: {
+                      type: 'LineString' as const,
+                      coordinates: coords.map((p) => [p.longitude, p.latitude]),
+                    },
+                    properties: {},
+                  })),
+                }}
+              >
+                <MapLibreGL.LineLayer
+                  id="routeLines"
+                  style={{
+                    lineColor: mode === 'heatmap' ? 'rgba(252,76,2,0.45)' : 'rgba(37,99,235,0.75)',
+                    lineWidth: mode === 'heatmap' ? 3 : 2,
+                    lineCap: 'round',
+                    lineJoin: 'round',
+                  }}
                 />
-              ))}
-            </MapView>
+              </MapLibreGL.ShapeSource>
+            </MapLibreGL.MapView>
 
             <TouchableOpacity style={styles.toggleButton} onPress={() => setMode(mode === 'heatmap' ? 'routes' : 'heatmap')}>
               <Ionicons name="layers-outline" size={16} color={C.text} style={{ marginRight: 6 }} />

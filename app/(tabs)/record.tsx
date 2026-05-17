@@ -16,7 +16,7 @@ import {
   Linking,
   useColorScheme,
 } from 'react-native';
-import MapView, { Polyline, Marker, PROVIDER_DEFAULT } from 'react-native-maps';
+import MapLibreGL from '@maplibre/maplibre-react-native';
 import * as Location from 'expo-location';
 import { SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useActivityRecording } from '@/hooks/useActivityRecording';
@@ -47,24 +47,8 @@ const SPORT_PICKER_BOTTOM = PANEL_MIN_HEIGHT + 12;
 const CONTENT_HEIGHT_EST = 460;
 const HANDLE_HEIGHT = 30;
 
-const DARK_MAP_STYLE = [
-  { elementType: 'geometry', stylers: [{ color: '#212121' }] },
-  { elementType: 'labels.text.fill', stylers: [{ color: '#757575' }] },
-  { elementType: 'labels.text.stroke', stylers: [{ color: '#212121' }] },
-  { featureType: 'administrative', elementType: 'geometry', stylers: [{ color: '#757575' }] },
-  { featureType: 'administrative.locality', elementType: 'labels.text.fill', stylers: [{ color: '#bdbdbd' }] },
-  { featureType: 'poi', elementType: 'labels.text.fill', stylers: [{ color: '#757575' }] },
-  { featureType: 'poi.park', elementType: 'geometry', stylers: [{ color: '#181818' }] },
-  { featureType: 'poi.park', elementType: 'labels.text.fill', stylers: [{ color: '#616161' }] },
-  { featureType: 'road', elementType: 'geometry.fill', stylers: [{ color: '#2c2c2c' }] },
-  { featureType: 'road', elementType: 'labels.text.fill', stylers: [{ color: '#8a8a8a' }] },
-  { featureType: 'road.arterial', elementType: 'geometry', stylers: [{ color: '#373737' }] },
-  { featureType: 'road.highway', elementType: 'geometry', stylers: [{ color: '#3c3c3c' }] },
-  { featureType: 'road.local', elementType: 'labels.text.fill', stylers: [{ color: '#616161' }] },
-  { featureType: 'transit', elementType: 'labels.text.fill', stylers: [{ color: '#757575' }] },
-  { featureType: 'water', elementType: 'geometry', stylers: [{ color: '#000000' }] },
-  { featureType: 'water', elementType: 'labels.text.fill', stylers: [{ color: '#3d3d3d' }] },
-];
+const STYLE_LIGHT = 'https://basemaps.cartocdn.com/gl/voyager-gl-style/style.json';
+const STYLE_DARK = 'https://basemaps.cartocdn.com/gl/dark-matter-gl-style/style.json';
 
 function lastSegmentPace(track: TrackPoint[], km: number): string {
   if (track.length < 2) return '--';
@@ -101,7 +85,8 @@ export default function RecordScreen() {
   const [activityDescription, setActivityDescription] = useState('');
   const [activityStatus, setActivityStatus] = useState<ActivityStatus>('public');
   const recordingDataRef = useRef<ReturnType<typeof stopRecording>>(null);
-  const mapRef = useRef<MapView>(null);
+  const mapRef = useRef<MapLibreGL.MapView>(null);
+  const cameraRef = useRef<MapLibreGL.Camera>(null);
 
   const C = useColors();
   const colorScheme = useColorScheme();
@@ -164,33 +149,18 @@ export default function RecordScreen() {
     })
   ).current;
 
-  useEffect(() => {
-    Location.getLastKnownPositionAsync({}).then((pos) => {
-      if (pos && mapRef.current && !hasCenteredRef.current) {
-        hasCenteredRef.current = true;
-        mapRef.current.animateToRegion({
-          latitude: pos.coords.latitude,
-          longitude: pos.coords.longitude,
-          latitudeDelta: 0.01,
-          longitudeDelta: 0.01,
-        }, 0);
-      }
-    }).catch(() => {});
-  }, []);
-
-  function handleUserLocationChange(e: { nativeEvent: { coordinate: { latitude: number; longitude: number } } }) {
+  function handleUserLocationUpdate(loc: MapLibreGL.Location) {
     if (!hasCenteredRef.current && !isRecording) {
       hasCenteredRef.current = true;
-      mapRef.current?.animateToRegion({
-        latitude: e.nativeEvent.coordinate.latitude,
-        longitude: e.nativeEvent.coordinate.longitude,
-        latitudeDelta: 0.01,
-        longitudeDelta: 0.01,
-      }, 600);
+      cameraRef.current?.setCamera({
+        centerCoordinate: [loc.coords.longitude, loc.coords.latitude],
+        zoomLevel: 15,
+        animationDuration: 600,
+      });
     }
   }
 
-  const mapCoords = track.map((p) => ({ latitude: p.latitude, longitude: p.longitude }));
+  const mapCoords = track.map((p) => [p.longitude, p.latitude] as [number, number]);
   const lastPoint = track[track.length - 1];
   const last1km = lastSegmentPace(track, 1);
   const last5km = lastSegmentPace(track, 5);
@@ -287,34 +257,47 @@ export default function RecordScreen() {
 
   return (
     <View style={styles.container}>
-      <MapView
+      <MapLibreGL.MapView
         ref={mapRef}
         style={styles.map}
-        provider={PROVIDER_DEFAULT}
-        showsUserLocation
-        followsUserLocation={isRecording && !isPaused}
-        onUserLocationChange={handleUserLocationChange}
-        customMapStyle={colorScheme === 'dark' ? DARK_MAP_STYLE : []}
-        userInterfaceStyle={colorScheme === 'dark' ? 'dark' : 'light'}
-        initialRegion={lastPoint ? {
-          latitude: lastPoint.latitude,
-          longitude: lastPoint.longitude,
-          latitudeDelta: 0.01,
-          longitudeDelta: 0.01,
-        } : undefined}
+        styleURL={colorScheme === 'dark' ? STYLE_DARK : STYLE_LIGHT}
+        logoEnabled={false}
+        attributionEnabled={false}
       >
+        <MapLibreGL.Camera
+          ref={cameraRef}
+          followUserLocation={isRecording && !isPaused}
+          followZoomLevel={15}
+          zoomLevel={14}
+        />
+        <MapLibreGL.UserLocation
+          visible
+          onUpdate={handleUserLocationUpdate}
+        />
         {mapCoords.length > 1 && (
-          <Polyline coordinates={mapCoords} strokeColor={C.primary} strokeWidth={4} />
+          <MapLibreGL.ShapeSource
+            id="route"
+            shape={{
+              type: 'Feature',
+              geometry: { type: 'LineString', coordinates: mapCoords },
+              properties: {},
+            }}
+          >
+            <MapLibreGL.LineLayer
+              id="routeLine"
+              style={{ lineColor: C.primary, lineWidth: 4, lineCap: 'round', lineJoin: 'round' }}
+            />
+          </MapLibreGL.ShapeSource>
         )}
         {lastPoint && (
-          <Marker
-            coordinate={{ latitude: lastPoint.latitude, longitude: lastPoint.longitude }}
-            anchor={{ x: 0.5, y: 0.5 }}
+          <MapLibreGL.PointAnnotation
+            id="lastPoint"
+            coordinate={[lastPoint.longitude, lastPoint.latitude]}
           >
             <View style={styles.markerDot} />
-          </Marker>
+          </MapLibreGL.PointAnnotation>
         )}
-      </MapView>
+      </MapLibreGL.MapView>
 
       {!isRecording && (
         <View style={styles.sportPicker}>
