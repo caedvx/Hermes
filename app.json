@@ -51,6 +51,13 @@
     ],
     "experiments": {
       "typedRoutes": true
-    }
+    },
+    "extra": {
+      "router": {},
+      "eas": {
+        "projectId": "08fd3fe0-2b73-46bb-979b-fab9027c3453"
+      }
+    },
+    "owner": "caedvx"
   }
 }
