@@ -8,6 +8,7 @@ import {
   ActivityIndicator,
   Alert,
   Image,
+  Switch,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import * as ImagePicker from 'expo-image-picker';
@@ -15,6 +16,7 @@ import { useAuth } from '@/contexts/auth';
 import { supabase } from '@/lib/supabase';
 import type { Activity } from '@/lib/types';
 import { useColors } from '@/hooks/useColors';
+import { useTheme } from '@/contexts/theme';
 import type { Colors } from '@/constants/colors';
 import { Ionicons } from '@expo/vector-icons';
 import { formatDistance, formatDuration, sportIoniconName } from '@/lib/utils';
@@ -35,6 +37,7 @@ export default function ProfileScreen() {
   const [loading, setLoading] = useState(true);
   const [uploadingAvatar, setUploadingAvatar] = useState(false);
   const C = useColors();
+  const { isDark, setMode } = useTheme();
   const styles = useMemo(() => makeStyles(C), [C]);
 
   useEffect(() => {
@@ -212,6 +215,16 @@ export default function ProfileScreen() {
           </View>
         )}
 
+        <View style={styles.appearanceRow}>
+          <Text style={styles.appearanceLabel}>Dark Mode</Text>
+          <Switch
+            value={isDark}
+            onValueChange={(val) => setMode(val ? 'dark' : 'light')}
+            trackColor={{ false: C.border, true: C.primary }}
+            thumbColor="#ffffff"
+          />
+        </View>
+
         <TouchableOpacity style={styles.signOutButton} onPress={handleSignOut}>
           <Text style={styles.signOutText}>Sign Out</Text>
         </TouchableOpacity>
@@ -377,6 +390,24 @@ function makeStyles(C: Colors) {
     recentStats: {
       fontSize: 13,
       color: C.textMuted,
+    },
+    appearanceRow: {
+      flexDirection: 'row',
+      alignItems: 'center',
+      justifyContent: 'space-between',
+      backgroundColor: C.surface,
+      marginTop: 8,
+      marginHorizontal: 20,
+      paddingHorizontal: 16,
+      paddingVertical: 14,
+      borderRadius: 10,
+      borderWidth: 1,
+      borderColor: C.border,
+    },
+    appearanceLabel: {
+      fontSize: 16,
+      fontWeight: '500',
+      color: C.text,
     },
     signOutButton: {
       margin: 20,
