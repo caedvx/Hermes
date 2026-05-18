@@ -9,6 +9,7 @@ import {
   Alert,
   Image,
   Switch,
+  Linking,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import * as ImagePicker from 'expo-image-picker';
@@ -225,6 +226,14 @@ export default function ProfileScreen() {
           />
         </View>
 
+        <TouchableOpacity
+          style={styles.privacyButton}
+          onPress={() => Linking.openURL('https://caedvx.github.io/Hermes-Privacy-Policy/')}
+        >
+          <Ionicons name="shield-checkmark-outline" size={16} color={C.textMuted} />
+          <Text style={styles.privacyText}>Privacy Policy</Text>
+        </TouchableOpacity>
+
         <TouchableOpacity style={styles.signOutButton} onPress={handleSignOut}>
           <Text style={styles.signOutText}>Sign Out</Text>
         </TouchableOpacity>
@@ -409,8 +418,23 @@ function makeStyles(C: Colors) {
       fontWeight: '500',
       color: C.text,
     },
+    privacyButton: {
+      flexDirection: 'row',
+      alignItems: 'center',
+      justifyContent: 'center',
+      gap: 6,
+      marginHorizontal: 20,
+      marginTop: 8,
+      paddingVertical: 12,
+    },
+    privacyText: {
+      color: C.textMuted,
+      fontSize: 14,
+      textDecorationLine: 'underline',
+    },
     signOutButton: {
       margin: 20,
+      marginTop: 8,
       paddingVertical: 14,
       borderRadius: 10,
       borderWidth: 1.5,

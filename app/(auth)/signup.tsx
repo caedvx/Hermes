@@ -10,8 +10,10 @@ import {
   ActivityIndicator,
   Alert,
   ScrollView,
+  Linking,
 } from 'react-native';
 import { Link } from 'expo-router';
+import { Ionicons } from '@expo/vector-icons';
 import { supabase } from '@/lib/supabase';
 import { useColors } from '@/hooks/useColors';
 import type { Colors } from '@/constants/colors';
@@ -22,12 +24,22 @@ export default function SignupScreen() {
   const [username, setUsername] = useState('');
   const [fullName, setFullName] = useState('');
   const [loading, setLoading] = useState(false);
+  const [privacyAccepted, setPrivacyAccepted] = useState(false);
+  const [ageConfirmed, setAgeConfirmed] = useState(false);
   const C = useColors();
   const styles = useMemo(() => makeStyles(C), [C]);
 
   async function handleSignup() {
     if (!email || !password || !username) {
       Alert.alert('Error', 'Please fill in all required fields.');
+      return;
+    }
+    if (!ageConfirmed) {
+      Alert.alert('Required', 'You must be 13 years of age or older to create an account.');
+      return;
+    }
+    if (!privacyAccepted) {
+      Alert.alert('Required', 'You must accept the Privacy Policy to create an account.');
       return;
     }
     if (password.length < 6) {
@@ -99,6 +111,40 @@ export default function SignupScreen() {
           />
 
           <TouchableOpacity
+            style={styles.privacyRow}
+            onPress={() => setAgeConfirmed((v) => !v)}
+            activeOpacity={0.7}
+          >
+            <Ionicons
+              name={ageConfirmed ? 'checkbox' : 'square-outline'}
+              size={22}
+              color={ageConfirmed ? C.primary : C.textMuted}
+            />
+            <Text style={styles.privacyText}>I am 13 years of age or older</Text>
+          </TouchableOpacity>
+
+          <TouchableOpacity
+            style={styles.privacyRow}
+            onPress={() => setPrivacyAccepted((v) => !v)}
+            activeOpacity={0.7}
+          >
+            <Ionicons
+              name={privacyAccepted ? 'checkbox' : 'square-outline'}
+              size={22}
+              color={privacyAccepted ? C.primary : C.textMuted}
+            />
+            <Text style={styles.privacyText}>
+              I agree to the{' '}
+              <Text
+                style={styles.privacyLink}
+                onPress={() => Linking.openURL('https://caedvx.github.io/Hermes-Privacy-Policy/')}
+              >
+                Privacy Policy
+              </Text>
+            </Text>
+          </TouchableOpacity>
+
+          <TouchableOpacity
             style={[styles.button, loading && styles.buttonDisabled]}
             onPress={handleSignup}
             disabled={loading}
@@ -162,6 +208,23 @@ function makeStyles(C: Colors) {
       color: C.text,
       borderWidth: 1,
       borderColor: C.border,
+    },
+    privacyRow: {
+      flexDirection: 'row',
+      alignItems: 'center',
+      gap: 10,
+      paddingVertical: 4,
+    },
+    privacyText: {
+      flex: 1,
+      fontSize: 14,
+      color: C.textSecondary,
+      lineHeight: 20,
+    },
+    privacyLink: {
+      color: C.primary,
+      fontWeight: '600',
+      textDecorationLine: 'underline',
     },
     button: {
       backgroundColor: C.primary,
