@@ -18,10 +18,14 @@ function RootNavigator() {
     const inTabsGroup = segments[0] === '(tabs)';
 
     if (!session && !inAuthGroup) {
+      // Not logged in — send to login
       router.replace('/(auth)/login');
-    } else if (session && !inTabsGroup) {
+    } else if (session && inAuthGroup) {
+      // Logged in but somehow on an auth screen — send to app
       router.replace('/(tabs)');
     }
+    // Authenticated users on any other route (activity/[id], athlete/[username],
+    // groups/*, etc.) are left alone — the Stack handles them normally.
   }, [session, loading, segments]);
 
   return (
@@ -32,7 +36,7 @@ function RootNavigator() {
         <Stack.Screen name="(tabs)" />
         <Stack.Screen
           name="activity/[id]"
-          options={{ headerShown: true, title: 'Activity', headerBackTitle: 'Back' }}
+          options={{ headerShown: false }}
         />
         <Stack.Screen
           name="athlete/[username]"

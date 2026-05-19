@@ -16,6 +16,7 @@ import {
   Linking,
   useColorScheme,
 } from 'react-native';
+import { PillButton } from '@/components/PillButton';
 import { Map as MapLibreMap, Camera, GeoJSONSource, Layer, UserLocation, Marker, type CameraRef } from '@maplibre/maplibre-react-native';
 import * as Location from 'expo-location';
 import { SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context';
@@ -47,8 +48,7 @@ const TAB_BAR_HEIGHT = 72;   // must match _layout.tsx bar height
 const CONTENT_HEIGHT_EST = 460;
 const HANDLE_HEIGHT = 30;
 
-const STYLE_LIGHT = 'https://basemaps.cartocdn.com/gl/voyager-gl-style/style.json';
-const STYLE_DARK = 'https://basemaps.cartocdn.com/gl/dark-matter-gl-style/style.json';
+const MAP_STYLE = 'https://basemaps.cartocdn.com/gl/dark-matter-gl-style/style.json';
 
 function lastSegmentPace(track: TrackPoint[], km: number): string {
   if (track.length < 2) return '--';
@@ -101,37 +101,25 @@ export default function RecordScreen() {
   const panelMaxH = SCREEN_HEIGHT - safeTop;
   const collapsedOff = panelMaxH - effectivePanelMinHeight;
 
-  const centeringPad = Math.max(0, (panelMaxH - HANDLE_HEIGHT - CONTENT_HEIGHT_EST) / 2);
 
   const styles = useMemo(
     () => makeStyles(C, safeTop, panelMaxH, sportPickerBottom),
     [C, safeTop, panelMaxH, sportPickerBottom],
   );
 
-  // Two animated values tracking the same position:
-  // panelTranslate → translateY only, uses native driver (runs on UI thread, never drops frames)
-  // panelLayout    → layout interpolations (fontSize, paddingTop), must use JS driver
+  // Single animated value drives both translateY and the top-segment scale.
+  // Both are transform properties → useNativeDriver: true → UI thread only, zero JS overhead.
   const panelTranslate = useRef(new Animated.Value(collapsedOff)).current;
-  const panelLayout    = useRef(new Animated.Value(collapsedOff)).current;
   const panelBase = useRef(collapsedOff);
+
+  // Scale interpolation: 1.0 when collapsed → 1.20 when fully expanded.
+  // Derived from panelTranslate so it's automatically native-driver compatible.
+  const topSegmentScale = panelTranslate.interpolate({
+    inputRange: [0, collapsedOff],
+    outputRange: [1.20, 1.0],
+    extrapolate: 'clamp',
+  });
   const hasCenteredRef = useRef(false);
-
-  const contentTopPad = panelLayout.interpolate({
-    inputRange: [0, collapsedOff],
-    outputRange: [centeringPad, 0],
-    extrapolate: 'clamp',
-  });
-
-  const durationFontSize = panelLayout.interpolate({
-    inputRange: [0, collapsedOff],
-    outputRange: [88, 56],
-    extrapolate: 'clamp',
-  });
-  const durationLineHeight = panelLayout.interpolate({
-    inputRange: [0, collapsedOff],
-    outputRange: [96, 62],
-    extrapolate: 'clamp',
-  });
 
   const panResponder = useRef(
     PanResponder.create({
@@ -140,34 +128,47 @@ export default function RecordScreen() {
         Math.abs(dy) > 8 && Math.abs(dy) > Math.abs(dx) * 2,
       onPanResponderGrant: () => {
         panelTranslate.stopAnimation();
-        panelLayout.stopAnimation();
       },
       onPanResponderMove: (_, { dy }) => {
-        const val = Math.max(0, Math.min(collapsedOff, panelBase.current + dy));
-        panelTranslate.setValue(val);
-        panelLayout.setValue(val);
+        panelTranslate.setValue(Math.max(0, Math.min(collapsedOff, panelBase.current + dy)));
       },
       onPanResponderRelease: (_, { dy, vy }) => {
         const released = Math.max(0, Math.min(collapsedOff, panelBase.current + dy));
         const expand = vy < -0.3 || (vy <= 0.3 && released < collapsedOff * 0.2);
         const target = expand ? 0 : collapsedOff;
         panelBase.current = target;
-        const cfg = { toValue: target, duration: 260, easing: Easing.out(Easing.cubic) };
-        Animated.parallel([
-          Animated.timing(panelTranslate, { ...cfg, useNativeDriver: true }),
-          Animated.timing(panelLayout,    { ...cfg, useNativeDriver: false }),
-        ]).start();
+        Animated.timing(panelTranslate, {
+          toValue: target,
+          duration: 280,
+          easing: Easing.out(Easing.cubic),
+          useNativeDriver: true,
+        }).start();
       },
     })
   ).current;
 
   useEffect(() => {
-    Location.getLastKnownPositionAsync({}).then((pos) => {
-      if (pos && !hasCenteredRef.current) {
-        hasCenteredRef.current = true;
-        setInitialCenter([pos.coords.longitude, pos.coords.latitude]);
-      }
-    }).catch(() => {});
+    async function initMapCenter() {
+      try {
+        // Try last-known first (instant, no battery cost)
+        const last = await Location.getLastKnownPositionAsync({});
+        if (last && !hasCenteredRef.current) {
+          hasCenteredRef.current = true;
+          setInitialCenter([last.coords.longitude, last.coords.latitude]);
+          return;
+        }
+        // Fall back to a fresh fix if no cached position
+        const { status } = await Location.getForegroundPermissionsAsync();
+        if (status === 'granted' && !hasCenteredRef.current) {
+          const current = await Location.getCurrentPositionAsync({
+            accuracy: Location.Accuracy.Balanced,
+          });
+          hasCenteredRef.current = true;
+          setInitialCenter([current.coords.longitude, current.coords.latitude] as [number, number]);
+        }
+      } catch {}
+    }
+    initMapCenter();
   }, []);
 
   // Split track into segments so gaps don't draw straight lines on the map
@@ -285,15 +286,15 @@ export default function RecordScreen() {
     <View style={styles.container}>
       <MapLibreMap
         style={styles.map}
-        mapStyle={colorScheme === 'dark' ? STYLE_DARK : STYLE_LIGHT}
+        mapStyle={MAP_STYLE}
         attribution={false}
       >
         <Camera
           ref={cameraRef}
           trackUserLocation={isRecording && !isPaused ? 'default' : undefined}
           {...(!isRecording && initialCenter
-            ? { centerCoordinate: initialCenter, zoomLevel: 15, animationDuration: 600 }
-            : { zoomLevel: 14 }
+            ? { center: initialCenter, zoom: 15, duration: 500 }
+            : {}
           )}
         />
         <UserLocation />
@@ -345,51 +346,61 @@ export default function RecordScreen() {
           <View style={styles.handleRow}>
             <View style={styles.dragHandle} />
           </View>
-          <Animated.View style={[styles.statsGroup, { paddingTop: contentTopPad, paddingBottom: tabBarClearance }]}>
-            <View style={styles.durationRow}>
-              <Animated.Text style={[styles.durationValue, { fontSize: durationFontSize, lineHeight: durationLineHeight }]}>
-                {formatDuration(stats.durationSeconds)}
-              </Animated.Text>
-              <Text style={styles.durationLabel}>DURATION</Text>
-            </View>
-            <View style={styles.secondaryRow}>
-              <StatPill label="Distance" value={formatDistance(stats.distanceMeters)} />
-              <View style={styles.pillDivider} />
-              <StatPill label="Avg Pace" value={formatPace(stats.avgSpeedMps, sportType)} />
-              <View style={styles.pillDivider} />
-              <StatPill label="Elevation" value={formatElevation(stats.elevationGainMeters)} />
-            </View>
-            <View style={styles.controls}>
-              {!isRecording ? (
-                <TouchableOpacity style={styles.startButton} onPress={handleStart}>
-                  <Text style={styles.startButtonText}>START</Text>
-                </TouchableOpacity>
-              ) : (
-                <View style={styles.activeControls}>
-                  <TouchableOpacity style={styles.stopButton} onPress={handleStop}>
-                    <View style={styles.stopIcon} />
-                  </TouchableOpacity>
-                  <TouchableOpacity
-                    style={[styles.pauseButton, isPaused && styles.resumeButton]}
-                    onPress={isPaused ? resumeRecording : pauseRecording}
-                  >
-                    {isPaused ? (
-                      <Text style={styles.pauseButtonText}>▶</Text>
-                    ) : (
-                      <View style={styles.pauseIcon}>
-                        <View style={styles.pauseBar} />
-                        <View style={styles.pauseBar} />
-                      </View>
-                    )}
-                  </TouchableOpacity>
+          <View style={[styles.statsGroup, { paddingBottom: tabBarClearance }]}>
+
+            {/* ── Core unit: centered vertically in the visible panel area ── */}
+            <View style={styles.coreUnit}>
+
+              {/* Top two segments scale together — native driver, zero JS */}
+              <Animated.View style={{ transform: [{ scale: topSegmentScale }] }}>
+                <View style={styles.durationRow}>
+                  <Text style={[styles.durationValue, { fontSize: 56, lineHeight: 62 }]}>
+                    {formatDuration(stats.durationSeconds)}
+                  </Text>
+                  <Text style={styles.durationLabel}>DURATION</Text>
+                </View>
+                <View style={styles.secondaryRow}>
+                  <StatPill label="Distance" value={formatDistance(stats.distanceMeters)} />
+                  <View style={styles.pillDivider} />
+                  <StatPill label="Avg Pace" value={formatPace(stats.avgSpeedMps, sportType)} />
+                  <View style={styles.pillDivider} />
+                  <StatPill label="Elevation" value={formatElevation(stats.elevationGainMeters)} />
+                </View>
+              </Animated.View>
+
+              {/* Controls */}
+              <View style={styles.controls}>
+                {!isRecording ? (
+                  <PillButton label="▶   Start run" onPress={handleStart} glow style={{ paddingHorizontal: 40 }} />
+                ) : (
+                  <View style={styles.activeControls}>
+                    <TouchableOpacity style={styles.stopButton} onPress={handleStop}>
+                      <View style={styles.stopIcon} />
+                    </TouchableOpacity>
+                    <TouchableOpacity
+                      style={[styles.pauseButton, isPaused && styles.resumeButton]}
+                      onPress={isPaused ? resumeRecording : pauseRecording}
+                    >
+                      {isPaused ? (
+                        <Text style={styles.pauseButtonText}>▶</Text>
+                      ) : (
+                        <View style={styles.pauseIcon}>
+                          <View style={styles.pauseBar} />
+                          <View style={styles.pauseBar} />
+                        </View>
+                      )}
+                    </TouchableOpacity>
+                  </View>
+                )}
+              </View>
+
+              {isPaused && (
+                <View style={styles.pausedBanner}>
+                  <Text style={styles.pausedText}>PAUSED</Text>
                 </View>
               )}
-            </View>
-            {isPaused && (
-              <View style={styles.pausedBanner}>
-                <Text style={styles.pausedText}>PAUSED</Text>
-              </View>
-            )}
+
+            </View>{/* end coreUnit */}
 
             <View style={styles.extendedSection}>
               <View style={styles.extendedHeaderRow}>
@@ -407,7 +418,7 @@ export default function RecordScreen() {
               </View>
             </View>
 
-          </Animated.View>
+          </View>
         </View>
       </Animated.View>
 
@@ -487,11 +498,10 @@ export default function RecordScreen() {
 }
 
 function StatPill({ label, value }: { label: string; value: string }) {
-  const C = useColors();
   return (
     <View style={{ flex: 1, alignItems: 'center', paddingVertical: 4 }}>
-      <Text style={{ fontSize: 18, fontWeight: '500', color: C.primary, letterSpacing: -0.5 }}>{value}</Text>
-      <Text style={{ fontSize: 10, color: C.textMuted, fontWeight: '400', textTransform: 'uppercase', letterSpacing: 0.5, marginTop: 2 }}>
+      <Text style={{ fontSize: 18, fontWeight: '500', color: '#4DD0E1', letterSpacing: -0.5 }}>{value}</Text>
+      <Text style={{ fontSize: 8, color: 'rgba(77,208,225,0.4)', fontWeight: '400', textTransform: 'uppercase', letterSpacing: 0.09, marginTop: 3 }}>
         {label}
       </Text>
     </View>
@@ -499,23 +509,22 @@ function StatPill({ label, value }: { label: string; value: string }) {
 }
 
 function StatCard({ label, value, accent }: { label: string; value: string; accent?: boolean }) {
-  const C = useColors();
   return (
     <View style={{
       flex: 1,
-      backgroundColor: C.surfaceAlt,
-      borderRadius: 14,
+      backgroundColor: 'rgba(0,188,212,0.07)',
+      borderRadius: 16,
       borderWidth: 1,
-      borderColor: C.border,
-      paddingVertical: 18,
+      borderColor: 'rgba(0,188,212,0.18)',
+      paddingVertical: 16,
       paddingHorizontal: 12,
       alignItems: 'center',
       marginHorizontal: 4,
     }}>
-      <Text style={{ fontSize: 24, fontWeight: '500', color: accent ? C.primary : C.text, letterSpacing: -0.5 }}>
+      <Text style={{ fontSize: 22, fontWeight: '500', color: accent ? '#4DD0E1' : '#fff', letterSpacing: -0.5 }}>
         {value}
       </Text>
-      <Text style={{ fontSize: 10, color: C.textMuted, fontWeight: '400', textTransform: 'uppercase', letterSpacing: 0.8, marginTop: 6 }}>
+      <Text style={{ fontSize: 8, color: 'rgba(77,208,225,0.4)', fontWeight: '400', textTransform: 'uppercase', letterSpacing: 0.09, marginTop: 5 }}>
         {label}
       </Text>
     </View>
@@ -556,20 +565,20 @@ function makeStyles(C: Colors, safeTop: number, panelMaxH: number, sportPickerBo
     sportChip: {
       flexDirection: 'row',
       alignItems: 'center',
-      backgroundColor: C.surfaceOverlay,
-      borderRadius: 20,
+      backgroundColor: 'rgba(4,12,18,0.88)',
+      borderRadius: 50,
       paddingHorizontal: 12,
-      paddingVertical: 6,
+      paddingVertical: 7,
       gap: 4,
-      borderWidth: 2,
-      borderColor: 'transparent',
+      borderWidth: 1,
+      borderColor: 'rgba(0,188,212,0.18)',
     },
     sportChipActive: {
-      borderColor: C.primary,
-      backgroundColor: C.surface,
+      borderColor: 'rgba(0,188,212,0.55)',
+      backgroundColor: 'rgba(0,188,212,0.14)',
     },
-    sportLabel: { fontSize: 13, fontWeight: '600', color: C.textSecondary },
-    sportLabelActive: { color: C.primary },
+    sportLabel: { fontSize: 13, fontWeight: '400', color: C.textMuted },
+    sportLabelActive: { color: C.primary, fontWeight: '500' },
 
     statsPanel: {
       position: 'absolute',
@@ -577,14 +586,18 @@ function makeStyles(C: Colors, safeTop: number, panelMaxH: number, sportPickerBo
       left: 0,
       right: 0,
       height: panelMaxH,
-      backgroundColor: C.surface,
-      borderTopLeftRadius: 20,
-      borderTopRightRadius: 20,
+      backgroundColor: 'rgba(3,10,12,0.97)',
+      borderTopLeftRadius: 24,
+      borderTopRightRadius: 24,
+      borderTopWidth: 1,
+      borderLeftWidth: 1,
+      borderRightWidth: 1,
+      borderColor: 'rgba(0,188,212,0.18)',
       shadowColor: '#000',
-      shadowOffset: { width: 0, height: -3 },
-      shadowOpacity: 0.12,
-      shadowRadius: 10,
-      elevation: 16,
+      shadowOffset: { width: 0, height: -4 },
+      shadowOpacity: 0.5,
+      shadowRadius: 20,
+      elevation: 24,
     },
     panelContent: {
       flex: 1,
@@ -598,26 +611,32 @@ function makeStyles(C: Colors, safeTop: number, panelMaxH: number, sportPickerBo
       width: 36,
       height: 4,
       borderRadius: 2,
-      backgroundColor: C.border,
+      backgroundColor: 'rgba(0,188,212,0.25)',
     },
     statsGroup: {
       flex: 1,
+    },
+    coreUnit: {
+      flex: 1,
+      justifyContent: 'center',
+      paddingHorizontal: 8,
+      paddingVertical: 12,
     },
     durationRow: {
       alignItems: 'center',
       paddingBottom: 16,
     },
     durationValue: {
-      fontWeight: '800',
-      color: C.primary,
-      letterSpacing: -1,
+      fontWeight: '500',
+      color: '#fff',
+      letterSpacing: -1.5,
     },
     durationLabel: {
-      fontSize: 10,
-      fontWeight: '700',
-      color: C.textMuted,
+      fontSize: 9,
+      fontWeight: '400',
+      color: 'rgba(77,208,225,0.45)',
       textTransform: 'uppercase',
-      letterSpacing: 1.5,
+      letterSpacing: 0.12,
       marginTop: 4,
     },
     secondaryRow: {
@@ -626,13 +645,13 @@ function makeStyles(C: Colors, safeTop: number, panelMaxH: number, sportPickerBo
       paddingHorizontal: 16,
       paddingBottom: 8,
       borderTopWidth: 1,
-      borderTopColor: C.border,
+      borderTopColor: 'rgba(0,188,212,0.12)',
       paddingTop: 12,
     },
     pillDivider: {
       width: 1,
-      height: 32,
-      backgroundColor: C.border,
+      height: 28,
+      backgroundColor: 'rgba(0,188,212,0.15)',
     },
     controls: {
       alignItems: 'center',
@@ -726,7 +745,7 @@ function makeStyles(C: Colors, safeTop: number, panelMaxH: number, sportPickerBo
       flexDirection: 'row',
       marginBottom: 8,
     },
-    modalContainer: { flex: 1, backgroundColor: C.background },
+    modalContainer: { flex: 1, backgroundColor: '#030A0C' },
     modalHeader: {
       flexDirection: 'row',
       justifyContent: 'space-between',
@@ -734,41 +753,42 @@ function makeStyles(C: Colors, safeTop: number, panelMaxH: number, sportPickerBo
       paddingHorizontal: 20,
       paddingVertical: 16,
       borderBottomWidth: 1,
-      borderBottomColor: C.border,
-      backgroundColor: C.surface,
+      borderBottomColor: 'rgba(0,188,212,0.15)',
     },
-    modalTitle: { fontSize: 17, fontWeight: '700', color: C.text },
-    modalDiscard: { color: C.danger, fontSize: 16, fontWeight: '600' },
-    modalSave: { color: C.primary, fontSize: 16, fontWeight: '700' },
+    modalTitle: { fontSize: 16, fontWeight: '500', color: C.text, letterSpacing: -0.2 },
+    modalDiscard: { color: C.danger, fontSize: 14, fontWeight: '500' },
+    modalSave: { color: C.primary, fontSize: 14, fontWeight: '500' },
     modalBody: { flex: 1, padding: 20 },
     modalStats: {
       flexDirection: 'row',
       justifyContent: 'space-around',
-      backgroundColor: C.surface,
-      borderRadius: 12,
+      borderWidth: 1,
+      borderColor: 'rgba(0,188,212,0.18)',
+      borderRadius: 16,
       padding: 16,
       marginBottom: 20,
+      backgroundColor: 'rgba(0,188,212,0.07)',
     },
     modalStatItem: { flexDirection: 'row', alignItems: 'center', gap: 5 },
-    modalStatText: { fontSize: 14, fontWeight: '600', color: C.text },
+    modalStatText: { fontSize: 13, fontWeight: '500', color: C.primary },
     titleInput: {
-      backgroundColor: C.surface,
-      borderRadius: 10,
+      backgroundColor: 'rgba(0,188,212,0.07)',
+      borderRadius: 14,
       borderWidth: 1,
-      borderColor: C.border,
+      borderColor: 'rgba(0,188,212,0.18)',
       paddingHorizontal: 16,
       paddingVertical: 14,
-      fontSize: 16,
+      fontSize: 15,
       color: C.text,
       marginBottom: 12,
     },
     descInput: { height: 80, textAlignVertical: 'top' },
     sectionLabel: {
-      fontSize: 13,
-      fontWeight: '700',
+      fontSize: 10,
+      fontWeight: '500',
       color: C.textMuted,
       textTransform: 'uppercase',
-      letterSpacing: 0.5,
+      letterSpacing: 0.8,
       marginBottom: 8,
       marginTop: 4,
     },
@@ -776,14 +796,14 @@ function makeStyles(C: Colors, safeTop: number, panelMaxH: number, sportPickerBo
     statusChip: {
       flex: 1,
       paddingVertical: 10,
-      borderRadius: 8,
-      borderWidth: 2,
-      borderColor: C.border,
+      borderRadius: 50,
+      borderWidth: 1,
+      borderColor: 'rgba(0,188,212,0.18)',
       alignItems: 'center',
-      backgroundColor: C.surface,
+      backgroundColor: 'rgba(0,188,212,0.05)',
     },
-    statusChipActive: { borderColor: C.primary },
-    statusChipText: { fontSize: 12, fontWeight: '600', color: C.textSecondary },
-    statusChipTextActive: { color: C.primary },
+    statusChipActive: { borderColor: 'rgba(0,188,212,0.50)', backgroundColor: 'rgba(0,188,212,0.15)' },
+    statusChipText: { fontSize: 12, fontWeight: '400', color: C.textMuted },
+    statusChipTextActive: { color: C.primary, fontWeight: '500' },
   });
 }

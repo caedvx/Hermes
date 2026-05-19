@@ -5,6 +5,7 @@ import { Ionicons } from '@expo/vector-icons';
 import type { Activity } from '@/lib/types';
 import { useColors } from '@/hooks/useColors';
 import { GlassCard } from './GlassCard';
+import { MiniMapView } from './MiniMapView';
 import { formatDistance, formatDuration, formatDate, formatPace, sportIoniconName, sportLabel } from '@/lib/utils';
 import { supabase } from '@/lib/supabase';
 import { useAuth } from '@/contexts/auth';
@@ -12,6 +13,14 @@ import { useAuth } from '@/contexts/auth';
 interface Props {
   activity: Activity;
   showAuthor?: boolean;
+}
+
+function relDate(start_at: string): string {
+  const days = Math.floor((Date.now() - new Date(start_at).getTime()) / 86400000);
+  if (days === 0) return 'Today';
+  if (days === 1) return 'Yesterday';
+  if (days < 7) return `${days}d ago`;
+  return formatDate(start_at);
 }
 
 export function ActivityCard({ activity, showAuthor = true }: Props) {
@@ -63,26 +72,35 @@ export function ActivityCard({ activity, showAuthor = true }: Props) {
               <Text style={{ color: C.text, fontWeight: '500', fontSize: 13 }}>
                 {profile.full_name ?? profile.username}
               </Text>
-              <View style={{ flexDirection: 'row', alignItems: 'center', gap: 4, marginTop: 1 }}>
-                <Ionicons name={sportIoniconName(activity.sport_type) as never} size={10} color={C.textMuted} />
-                <Text style={{ fontSize: 11, color: C.textMuted }}>
-                  {sportLabel(activity.sport_type)} · {formatDate(activity.start_at)}
-                </Text>
-              </View>
             </View>
           </View>
         )}
 
-        {/* Primary metric — distance, large */}
-        <View style={{ marginBottom: 10 }}>
-          <Text style={{ fontSize: 9, color: 'rgba(0,188,212,0.50)', letterSpacing: 0.12, textTransform: 'uppercase', marginBottom: 5 }}>
-            {!showAuthor ? `${sportLabel(activity.sport_type)} · ${formatDate(activity.start_at)}` : activity.title}
+        {/* Sport | Distance | Date — one row */}
+        <View style={{ flexDirection: 'row', alignItems: 'center', marginBottom: 10 }}>
+          <Text style={{ flex: 1, color: C.textMuted, fontSize: 12, fontWeight: '400' }}>
+            {sportLabel(activity.sport_type)}
           </Text>
-          <Text style={{ color: C.text, fontWeight: '500', fontSize: 30, letterSpacing: -1.2, lineHeight: 34 }}>
-            {formatDistance(activity.distance).replace(' km', '')}
-            <Text style={{ fontSize: 13, fontWeight: '400', color: 'rgba(255,255,255,0.35)' }}> km</Text>
+          <Text style={{ color: '#ffffff', fontSize: 20, fontWeight: '500', letterSpacing: -0.5 }}>
+            {formatDistance(activity.distance)}
+          </Text>
+          <Text style={{ flex: 1, color: C.textMuted, fontSize: 12, fontWeight: '400', textAlign: 'right' }}>
+            {relDate(activity.start_at)}
           </Text>
         </View>
+
+        {/* Mini route map */}
+        {activity.map_polyline ? (
+          <View style={{ marginBottom: 10, borderRadius: 10, overflow: 'hidden' }}>
+            <MiniMapView
+              polyline={activity.map_polyline}
+              uid={activity.id}
+              height={200}
+              routeColor="#00BCD4"
+              routeWidth={3}
+            />
+          </View>
+        ) : null}
 
         {/* Secondary metrics */}
         <View style={{
