@@ -19,7 +19,7 @@ export default function HeatmapScreen() {
   const C = useColors();
   const { isDark } = useTheme();
   const styles = useMemo(() => makeStyles(C), [C]);
-  const cameraRef = useRef<MapLibreGL.Camera>(null);
+  const cameraRef = useRef<CameraRef>(null);
 
   const [routes, setRoutes] = useState<Route[]>([]);
   const [loading, setLoading] = useState(true);
@@ -100,18 +100,17 @@ export default function HeatmapScreen() {
           </View>
         ) : (
           <>
-            <MapLibreGL.MapView
+            <MapLibreMap
               style={StyleSheet.absoluteFill}
-              styleURL={isDark
+              mapStyle={isDark
                 ? 'https://basemaps.cartocdn.com/gl/dark-matter-gl-style/style.json'
                 : 'https://basemaps.cartocdn.com/gl/voyager-gl-style/style.json'}
-              logoEnabled={false}
-              attributionEnabled={false}
+              attribution={false}
             >
-              <MapLibreGL.Camera ref={cameraRef} zoomLevel={10} />
-              <MapLibreGL.ShapeSource
+              <Camera ref={cameraRef} zoomLevel={10} />
+              <GeoJSONSource
                 id="routes"
-                shape={{
+                data={{
                   type: 'FeatureCollection',
                   features: routes.map((coords, i) => ({
                     type: 'Feature' as const,
@@ -124,17 +123,17 @@ export default function HeatmapScreen() {
                   })),
                 }}
               >
-                <MapLibreGL.LineLayer
+                <Layer
                   id="routeLines"
-                  style={{
-                    lineColor: mode === 'heatmap' ? 'rgba(252,76,2,0.45)' : 'rgba(37,99,235,0.75)',
-                    lineWidth: mode === 'heatmap' ? 3 : 2,
-                    lineCap: 'round',
-                    lineJoin: 'round',
+                  type="line"
+                  paint={{
+                    'line-color': mode === 'heatmap' ? 'rgba(252,76,2,0.45)' : 'rgba(37,99,235,0.75)',
+                    'line-width': mode === 'heatmap' ? 3 : 2,
                   }}
+                  layout={{ 'line-cap': 'round', 'line-join': 'round' }}
                 />
-              </MapLibreGL.ShapeSource>
-            </MapLibreGL.MapView>
+              </GeoJSONSource>
+            </MapLibreMap>
 
             <TouchableOpacity style={styles.toggleButton} onPress={() => setMode(mode === 'heatmap' ? 'routes' : 'heatmap')}>
               <Ionicons name="layers-outline" size={16} color={C.text} style={{ marginRight: 6 }} />

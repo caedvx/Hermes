@@ -42,8 +42,8 @@ const SPORT_ICONS: Record<SportType, string> = {
 };
 
 const { height: SCREEN_HEIGHT } = Dimensions.get('window');
-const PANEL_MIN_HEIGHT = 290;
-const SPORT_PICKER_BOTTOM = PANEL_MIN_HEIGHT + 12;
+const PANEL_MIN_HEIGHT = 290; // visible content height above the tab bar
+const TAB_BAR_HEIGHT = 72;   // must match _layout.tsx bar height
 const CONTENT_HEIGHT_EST = 460;
 const HANDLE_HEIGHT = 30;
 
@@ -90,31 +90,44 @@ export default function RecordScreen() {
 
   const C = useColors();
   const colorScheme = useColorScheme();
-  const { top: safeTop } = useSafeAreaInsets();
+  const { top: safeTop, bottom: safeBottom } = useSafeAreaInsets();
+
+  // Space the floating tab bar occupies at the bottom of the screen
+  const tabBarClearance = TAB_BAR_HEIGHT + Math.max(safeBottom, 8) + 10;
+  // Panel tall enough to show PANEL_MIN_HEIGHT of content above the tab bar
+  const effectivePanelMinHeight = PANEL_MIN_HEIGHT + tabBarClearance;
+  const sportPickerBottom = effectivePanelMinHeight + 12;
 
   const panelMaxH = SCREEN_HEIGHT - safeTop;
-  const collapsedOff = panelMaxH - PANEL_MIN_HEIGHT;
+  const collapsedOff = panelMaxH - effectivePanelMinHeight;
 
   const centeringPad = Math.max(0, (panelMaxH - HANDLE_HEIGHT - CONTENT_HEIGHT_EST) / 2);
 
-  const styles = useMemo(() => makeStyles(C, safeTop, panelMaxH), [C, safeTop, panelMaxH]);
+  const styles = useMemo(
+    () => makeStyles(C, safeTop, panelMaxH, sportPickerBottom),
+    [C, safeTop, panelMaxH, sportPickerBottom],
+  );
 
-  const [panelOffset] = useState(() => new Animated.Value(collapsedOff));
+  // Two animated values tracking the same position:
+  // panelTranslate → translateY only, uses native driver (runs on UI thread, never drops frames)
+  // panelLayout    → layout interpolations (fontSize, paddingTop), must use JS driver
+  const panelTranslate = useRef(new Animated.Value(collapsedOff)).current;
+  const panelLayout    = useRef(new Animated.Value(collapsedOff)).current;
   const panelBase = useRef(collapsedOff);
   const hasCenteredRef = useRef(false);
 
-  const contentTopPad = panelOffset.interpolate({
+  const contentTopPad = panelLayout.interpolate({
     inputRange: [0, collapsedOff],
     outputRange: [centeringPad, 0],
     extrapolate: 'clamp',
   });
 
-  const durationFontSize = panelOffset.interpolate({
+  const durationFontSize = panelLayout.interpolate({
     inputRange: [0, collapsedOff],
     outputRange: [88, 56],
     extrapolate: 'clamp',
   });
-  const durationLineHeight = panelOffset.interpolate({
+  const durationLineHeight = panelLayout.interpolate({
     inputRange: [0, collapsedOff],
     outputRange: [96, 62],
     extrapolate: 'clamp',
@@ -126,25 +139,24 @@ export default function RecordScreen() {
       onMoveShouldSetPanResponder: (_, { dy, dx }) =>
         Math.abs(dy) > 8 && Math.abs(dy) > Math.abs(dx) * 2,
       onPanResponderGrant: () => {
-        panelOffset.stopAnimation();
+        panelTranslate.stopAnimation();
+        panelLayout.stopAnimation();
       },
       onPanResponderMove: (_, { dy }) => {
-        panelOffset.setValue(
-          Math.max(0, Math.min(collapsedOff, panelBase.current + dy))
-        );
+        const val = Math.max(0, Math.min(collapsedOff, panelBase.current + dy));
+        panelTranslate.setValue(val);
+        panelLayout.setValue(val);
       },
       onPanResponderRelease: (_, { dy, vy }) => {
         const released = Math.max(0, Math.min(collapsedOff, panelBase.current + dy));
-        // velocity beats position: a quick flick always wins regardless of distance
         const expand = vy < -0.3 || (vy <= 0.3 && released < collapsedOff * 0.2);
         const target = expand ? 0 : collapsedOff;
         panelBase.current = target;
-        Animated.timing(panelOffset, {
-          toValue: target,
-          duration: 220,
-          easing: Easing.out(Easing.cubic),
-          useNativeDriver: false,
-        }).start();
+        const cfg = { toValue: target, duration: 260, easing: Easing.out(Easing.cubic) };
+        Animated.parallel([
+          Animated.timing(panelTranslate, { ...cfg, useNativeDriver: true }),
+          Animated.timing(panelLayout,    { ...cfg, useNativeDriver: false }),
+        ]).start();
       },
     })
   ).current;
@@ -158,7 +170,23 @@ export default function RecordScreen() {
     }).catch(() => {});
   }, []);
 
-  const mapCoords = track.map((p) => [p.longitude, p.latitude] as [number, number]);
+  // Split track into segments so gaps don't draw straight lines on the map
+  const trackSegments = useMemo(() => {
+    if (track.length < 2) return [];
+    const segs: [number, number][][] = [];
+    let current: [number, number][] = [];
+    for (const p of track) {
+      if (p.newSegment && current.length >= 1) {
+        if (current.length >= 2) segs.push(current);
+        current = [[p.longitude, p.latitude]];
+      } else {
+        current.push([p.longitude, p.latitude]);
+      }
+    }
+    if (current.length >= 2) segs.push(current);
+    return segs;
+  }, [track]);
+
   const lastPoint = track[track.length - 1];
   const last1km = lastSegmentPace(track, 1);
   const last5km = lastSegmentPace(track, 5);
@@ -269,10 +297,10 @@ export default function RecordScreen() {
           )}
         />
         <UserLocation />
-        {mapCoords.length > 1 && (
+        {trackSegments.length > 0 && (
           <GeoJSONSource
             id="route"
-            data={{ type: 'Feature', geometry: { type: 'LineString', coordinates: mapCoords }, properties: {} }}
+            data={{ type: 'Feature', geometry: { type: 'MultiLineString', coordinates: trackSegments }, properties: {} }}
           >
             <Layer
               id="routeLine"
@@ -312,12 +340,12 @@ export default function RecordScreen() {
         </View>
       )}
 
-      <Animated.View style={[styles.statsPanel, { transform: [{ translateY: panelOffset }] }]}>
+      <Animated.View style={[styles.statsPanel, { transform: [{ translateY: panelTranslate }] }]}>
         <View style={styles.panelContent} {...panResponder.panHandlers}>
           <View style={styles.handleRow}>
             <View style={styles.dragHandle} />
           </View>
-          <Animated.View style={[styles.statsGroup, { paddingTop: contentTopPad }]}>
+          <Animated.View style={[styles.statsGroup, { paddingTop: contentTopPad, paddingBottom: tabBarClearance }]}>
             <View style={styles.durationRow}>
               <Animated.Text style={[styles.durationValue, { fontSize: durationFontSize, lineHeight: durationLineHeight }]}>
                 {formatDuration(stats.durationSeconds)}
@@ -462,8 +490,8 @@ function StatPill({ label, value }: { label: string; value: string }) {
   const C = useColors();
   return (
     <View style={{ flex: 1, alignItems: 'center', paddingVertical: 4 }}>
-      <Text style={{ fontSize: 18, fontWeight: '700', color: C.text }}>{value}</Text>
-      <Text style={{ fontSize: 10, color: C.textMuted, fontWeight: '600', textTransform: 'uppercase', letterSpacing: 0.5, marginTop: 2 }}>
+      <Text style={{ fontSize: 18, fontWeight: '500', color: C.primary, letterSpacing: -0.5 }}>{value}</Text>
+      <Text style={{ fontSize: 10, color: C.textMuted, fontWeight: '400', textTransform: 'uppercase', letterSpacing: 0.5, marginTop: 2 }}>
         {label}
       </Text>
     </View>
@@ -477,22 +505,24 @@ function StatCard({ label, value, accent }: { label: string; value: string; acce
       flex: 1,
       backgroundColor: C.surfaceAlt,
       borderRadius: 14,
+      borderWidth: 1,
+      borderColor: C.border,
       paddingVertical: 18,
       paddingHorizontal: 12,
       alignItems: 'center',
       marginHorizontal: 4,
     }}>
-      <Text style={{ fontSize: 26, fontWeight: '800', color: accent ? C.primary : C.text, letterSpacing: -0.5 }}>
+      <Text style={{ fontSize: 24, fontWeight: '500', color: accent ? C.primary : C.text, letterSpacing: -0.5 }}>
         {value}
       </Text>
-      <Text style={{ fontSize: 10, color: C.textMuted, fontWeight: '700', textTransform: 'uppercase', letterSpacing: 0.8, marginTop: 6 }}>
+      <Text style={{ fontSize: 10, color: C.textMuted, fontWeight: '400', textTransform: 'uppercase', letterSpacing: 0.8, marginTop: 6 }}>
         {label}
       </Text>
     </View>
   );
 }
 
-function makeStyles(C: Colors, safeTop: number, panelMaxH: number) {
+function makeStyles(C: Colors, safeTop: number, panelMaxH: number, sportPickerBottom: number) {
   return StyleSheet.create({
     container: {
       flex: 1,
@@ -515,7 +545,7 @@ function makeStyles(C: Colors, safeTop: number, panelMaxH: number) {
     },
     sportPicker: {
       position: 'absolute',
-      bottom: SPORT_PICKER_BOTTOM,
+      bottom: sportPickerBottom,
       left: 0,
       right: 0,
     },
@@ -623,10 +653,10 @@ function makeStyles(C: Colors, safeTop: number, panelMaxH: number) {
       elevation: 8,
     },
     startButtonText: {
-      color: '#fff',
-      fontWeight: '900',
-      fontSize: 16,
-      letterSpacing: 2,
+      color: C.background,
+      fontWeight: '700',
+      fontSize: 15,
+      letterSpacing: 1.5,
     },
     activeControls: {
       flexDirection: 'row',

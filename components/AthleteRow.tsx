@@ -14,65 +14,49 @@ interface AthleteRowProps {
 }
 
 export default function AthleteRow({
-  profile,
-  actionLabel,
-  actionVariant = 'primary',
-  onAction,
-  onPress,
-  isLoading,
-  rightElement,
+  profile, actionLabel, actionVariant = 'primary',
+  onAction, onPress, isLoading, rightElement,
 }: AthleteRowProps) {
   const C = useColors();
 
-  const buttonBg =
-    actionVariant === 'primary' ? C.primary :
-    actionVariant === 'danger' ? C.danger :
-    'transparent';
-  const buttonBorder =
-    actionVariant === 'outline' ? C.border :
-    actionVariant === 'danger' ? C.danger :
-    C.primary;
-  const buttonText =
-    actionVariant === 'primary' ? '#fff' :
-    actionVariant === 'danger' ? C.danger :
-    C.textSecondary;
+  const buttonBg = actionVariant === 'primary' ? C.primary : 'transparent';
+  const buttonBorder = actionVariant === 'primary' ? C.primary : actionVariant === 'danger' ? C.danger : 'rgba(0,188,212,0.25)';
+  const buttonTextColor = actionVariant === 'primary' ? C.background : actionVariant === 'danger' ? C.danger : C.textSecondary;
 
   return (
     <TouchableOpacity
       onPress={onPress}
-      activeOpacity={onPress ? 0.7 : 1}
+      activeOpacity={onPress ? 0.75 : 1}
       style={{
         flexDirection: 'row',
         alignItems: 'center',
         paddingHorizontal: 16,
         paddingVertical: 12,
-        backgroundColor: C.surface,
+        backgroundColor: 'rgba(4,12,18,0.92)',
         borderBottomWidth: 1,
-        borderBottomColor: C.border,
+        borderBottomColor: 'rgba(0,188,212,0.10)',
         gap: 12,
       }}
     >
-      <AvatarView uri={profile.avatar_url} name={profile.username} size={44} />
+      <AvatarView uri={profile.avatar_url} name={profile.username} size={42} />
       <View style={{ flex: 1 }}>
-        <Text style={{ color: C.text, fontWeight: '600', fontSize: 15 }}>
+        <Text style={{ color: C.text, fontWeight: '500', fontSize: 14 }}>
           {profile.username}
         </Text>
         {profile.full_name ? (
-          <Text style={{ color: C.textMuted, fontSize: 13, marginTop: 1 }}>
+          <Text style={{ color: C.textMuted, fontSize: 12, marginTop: 1 }}>
             {profile.full_name}
           </Text>
         ) : null}
       </View>
-      {rightElement !== undefined ? (
-        rightElement
-      ) : actionLabel ? (
+      {rightElement !== undefined ? rightElement : actionLabel ? (
         <TouchableOpacity
           onPress={onAction}
           disabled={isLoading}
           style={{
             paddingHorizontal: 14,
             paddingVertical: 6,
-            borderRadius: 20,
+            borderRadius: 50,
             borderWidth: 1,
             borderColor: buttonBorder,
             backgroundColor: buttonBg,
@@ -81,9 +65,9 @@ export default function AthleteRow({
           }}
         >
           {isLoading ? (
-            <ActivityIndicator size="small" color={buttonText} />
+            <ActivityIndicator size="small" color={buttonTextColor} />
           ) : (
-            <Text style={{ color: buttonText, fontSize: 13, fontWeight: '600' }}>
+            <Text style={{ color: buttonTextColor, fontSize: 12, fontWeight: '500' }}>
               {actionLabel}
             </Text>
           )}

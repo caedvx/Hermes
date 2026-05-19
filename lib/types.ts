@@ -86,6 +86,7 @@ export interface TrackPoint {
   altitude: number | null;
   speed: number | null;
   timestamp: number;
+  newSegment?: boolean; // true when there's a tracking gap before this point
 }
 
 export interface RecordingState {
